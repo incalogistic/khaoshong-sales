@@ -1,4 +1,4 @@
-/* KHAOSHONG Sales — แอปพนักงานขาย (แวนเซลล์ / พรีเซลล์) เชื่อมกับระบบ DMS
+/* แอปพนักงานขาย (แวนเซลล์ / พรีเซลล์) เชื่อมกับระบบ DMS
  * ทุกข้อมูลอ่าน/เขียนผ่าน Web App ของ DMS (POST {fn, args})
  * ไฟล์เดียว ไม่ใช้ไลบรารีภายนอก */
 (function () {
@@ -71,7 +71,7 @@
   // ---------------------------------------------------------------- API
   function api(fn) {
     var args = Array.prototype.slice.call(arguments, 1);
-    if (fn !== 'apiLogin' && fn !== 'apiPing') args.unshift(S.token);
+    if (fn !== 'apiLogin' && fn !== 'apiPing' && fn !== 'apiLogo') args.unshift(S.token);
     busy(true);
     return fetch(S.url, {
       method: 'POST', redirect: 'follow',
@@ -207,10 +207,37 @@
   }
 
   // ================================================================= VIEWS
+  // ---------------------------------------------------------------- แบรนด์ (ชื่อ/โลโก้/สี มาจากหน้าตั้งค่าของ DMS)
+  function brand() { try { return JSON.parse(LS.get('brand') || '{}'); } catch (e) { return {}; } }
+  function shade(hex, k) {   // k<0 เข้มขึ้น, k>0 อ่อนลง
+    var n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+    var f = function (c) { return Math.round(k < 0 ? c * (1 + k) : c + (255 - c) * k); };
+    return '#' + [f(r), f(g), f(b)].map(function (c) { return (c < 16 ? '0' : '') + c.toString(16); }).join('');
+  }
+  function applyBrand() {
+    var b = brand(), c = /^#[0-9A-Fa-f]{6}$/.test(b.color || '') ? b.color : '#8B5E3C';
+    var st = document.documentElement.style;
+    st.setProperty('--brown', c); st.setProperty('--dark', shade(c, -0.34)); st.setProperty('--soft', shade(c, 0.86));
+    var m = document.querySelector('meta[name=theme-color]'); if (m) m.setAttribute('content', shade(c, -0.34));
+    document.title = b.salesAppName || 'แอปพนักงานขาย';
+  }
+  function logoHtml() {
+    var b = brand();
+    if (b.url) return '<img class="logo" style="object-fit:contain;background:#fff;padding:6px" src="' + esc(b.url) + '" alt="">';
+    var name = (b.salesAppName || 'เซลล์').replace(/[\s\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]+/g, '');
+    return '<div class="logo">' + esc(name.substring(0, 1)) + '</div>';
+  }
+  function loadBrand() {
+    return api('apiLogo').then(function (b) {
+      LS.set('brand', JSON.stringify({ url: b.url && b.url.length < 300000 ? b.url : '', salesAppName: b.salesAppName, company: b.company, color: b.color }));
+      applyBrand();
+    }).catch(function () { });
+  }
+
   // ---------------------------------------------------------------- setup
   VIEWS.setup = {
     render: function (el) {
-      el.innerHTML = '<div class="login"><div class="logo">KS</div><h2 style="margin:0">ตั้งค่าการเชื่อมต่อ</h2>' +
+      el.innerHTML = '<div class="login">' + logoHtml() + '<h2 style="margin:0">ตั้งค่าการเชื่อมต่อ</h2>' +
         '<p class="muted small">วางลิงก์ Web App ของระบบ DMS (ลงท้ายด้วย /exec)<br>ขอลิงก์ได้จาก System Support</p>' +
         '<label class="f" style="text-align:left"><span>ลิงก์ DMS</span><input class="input" id="u" inputmode="url" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(S.url) + '"></label>' +
         '<button class="btn pri block" id="ok" type="button">เชื่อมต่อ</button></div>';
@@ -221,7 +248,7 @@
         api('apiPing').then(function (r) {
           LS.set('url', u);
           toast('เชื่อมต่อ DMS ได้แล้ว (เวอร์ชัน ' + r.version + ')');
-          S.view = { name: 'login', params: {} }; render();
+          loadBrand().then(function () { S.view = { name: 'login', params: {} }; render(); });
         }).catch(fail);
       };
     }
@@ -231,8 +258,8 @@
   VIEWS.login = {
     render: function (el) {
       var user = LS.get('username') || '', pin = '';
-      el.innerHTML = '<div class="login"><div class="logo">KS</div><h2 style="margin:0 0 4px">KHAOSHONG Sales</h2>' +
-        '<div class="muted small" style="margin-bottom:14px">แอปพนักงานขาย · เข้าระบบด้วย User และ PIN</div>' +
+      el.innerHTML = '<div class="login">' + logoHtml() + '<h2 style="margin:0 0 4px">' + esc(brand().salesAppName || 'แอปพนักงานขาย') + '</h2>' +
+        '<div class="muted small" style="margin-bottom:14px">' + esc(brand().company || '') + (brand().company ? ' · ' : '') + 'เข้าระบบด้วย User และ PIN</div>' +
         '<input class="input c" id="un" placeholder="User เช่น V01, PS01" autocapitalize="characters" autocomplete="username" value="' + esc(user) + '">' +
         '<div class="dots">' + [0, 1, 2, 3, 4, 5].map(function () { return '<span></span>'; }).join('') + '</div>' +
         '<div class="pad">' + [1, 2, 3, 4, 5, 6, 7, 8, 9].map(function (n) { return '<button type="button" data-k="' + n + '">' + n + '</button>'; }).join('') +
@@ -324,7 +351,7 @@
       el.innerHTML = '<div class="list">' + items.map(function (i) { return '<div class="it" data-go="' + i[0] + '">' + esc(i[1]) + '</div>'; }).join('') +
         '<div class="it" data-go="changePin">เปลี่ยน PIN</div><div class="it" id="refresh">โหลดข้อมูลสินค้า/ลูกค้าใหม่</div>' +
         '<div class="it" id="out" style="color:var(--red)">ออกจากระบบ</div></div>' +
-        '<p class="muted small c">KHAOSHONG Sales · เชื่อมต่อ DMS</p>';
+        '<p class="muted small c">' + esc(brand().salesAppName || 'แอปพนักงานขาย') + ' · เชื่อมต่อ DMS</p>';
       $$('[data-go]').forEach(function (b) { b.onclick = function () { go(b.getAttribute('data-go')); }; });
       $('#refresh').onclick = function () { Promise.all([loadCatalog(true), loadParties(true)]).then(function () { toast('อัปเดตข้อมูลแล้ว'); }).catch(fail); };
       $('#out').onclick = function () { confirmBox('ออกจากระบบ', 'ต้องการออกจากระบบใช่ไหม', 'ออกจากระบบ').then(function (y) { if (y) logout(); }); };
@@ -874,7 +901,7 @@
     var s = S.boot.settings || {}, w = num(s.RECEIPT_WIDTH_MM) === 58 ? 58 : 80;
     return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{size:' + w + 'mm auto;margin:2mm}body{width:' + (w - 6) + 'mm;margin:0 auto;font-family:Tahoma,"Noto Sans Thai",sans-serif;font-size:' + (w === 58 ? 10 : 12) + 'px;color:#000;line-height:1.4}' +
       '.c{text-align:center}.b{font-weight:bold}.hr{border-top:1px dashed #000;margin:4px 0}table{width:100%;border-collapse:collapse}td,th{padding:2px 0;vertical-align:top;text-align:left}.r{text-align:right}</style></head><body>' +
-      '<div class="c b">' + esc(s.COMPANY_NAME || 'KHAOSHONG') + '</div><div class="hr"></div><div class="c b">' + esc(title) + '</div>' +
+      '<div class="c b">' + esc(s.COMPANY_NAME || '') + '</div><div class="hr"></div><div class="c b">' + esc(title) + '</div>' +
       (docNo ? '<div class="c">เลขที่ ' + esc(docNo) + '</div>' : '') + '<div class="c">' + esc(S.boot.user.VanName || '') + ' · ' + esc(S.boot.user.FullName) + '</div>' +
       '<div class="c">วันที่ ' + thDate(today()) + ' ' + new Date().toTimeString().substring(0, 5) + '</div><div class="hr"></div>' +
       '<table><tr>' + head.map(function (h, i) { return '<th class="' + (i ? 'r' : '') + '">' + esc(h) + '</th>'; }).join('') + '</tr>' +
@@ -954,14 +981,17 @@
   }
   function boot() {
     $('#back').onclick = back;
+    applyBrand();
     S.url = LS.get('url') || window.DMS_URL || '';
     if (window.DMS_URL && !LS.get('url')) S.url = window.DMS_URL;
     if (!S.url) { S.view = { name: 'setup', params: {} }; render(); return; }
     // แอปขอ PIN ทุกครั้งที่เปิด (ไม่จำการเข้าระบบ)
     LS.del('token');
+    applyBrand();
     S.view = { name: 'login', params: {} }; render();
+    loadBrand().then(function () { if (S.view && S.view.name === 'login' && !$$('.dots span.on').length) render(); });
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () { });
   }
-  window.KS = { S: S, go: go, api: api, htmlToPng: htmlToPng };   // สำหรับทดสอบ
+  window.SalesApp = { S: S, go: go, api: api, htmlToPng: htmlToPng };   // สำหรับทดสอบ
   boot();
 })();

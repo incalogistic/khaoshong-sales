@@ -1,6 +1,6 @@
 {
-  "name": "KHAOSHONG Sales",
-  "short_name": "เขาช่อง เซลล์",
+  "name": "แอปพนักงานขาย",
+  "short_name": "เซลล์",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
